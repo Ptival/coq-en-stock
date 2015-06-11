@@ -1,0 +1,17 @@
+<div class="header-left">
+  <hgroup>
+  <h1><a href="{{ root_url }}/">{{ site.title }}</a></h1>
+  {% if site.subtitle %}
+  <div class="subtitle">
+    <h2>{{ site.subtitle }}</h2>
+  </div>
+  {% endif %}
+  </hgroup>
+  {% comment %}
+  {% include custom/header.html %}
+  {% endcomment %}
+</div>
+
+<div class="header-right">
+  {% include navigation.html %}
+</div>

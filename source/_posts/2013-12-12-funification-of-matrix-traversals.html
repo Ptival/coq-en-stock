@@ -1,0 +1,176 @@
+---
+layout: post
+title: "Funification of matrix traversals"
+date: 2013-12-12 00:00:00 -0700
+comments: true
+categories:
+---
+{% raw %}
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta http-equiv="Content-Style-Type" content="text/css" />
+  <meta name="generator" content="pandoc" />
+  <title></title>
+  <style type="text/css">code{white-space: pre;}</style>
+  <style type="text/css">
+code > span.kw { color: #00FF49; font-weight: bold; }
+code > span.dt { color: #FF3900; }
+code > span.dv { color: #40a070; }
+code > span.bn { color: #40a070; }
+code > span.fl { color: #40a070; }
+code > span.ch { color: #4070a0; }
+code > span.st { color: #4070a0; }
+code > span.co { color: #60a0b0; font-style: italic; }
+code > span.ot { color: #00FF49; }
+code > span.al { color: #ff0000; font-weight: bold; }
+code > span.fu { color: #0048FF; }
+code > span.er { color: #ff0000; font-weight: bold; }
+  </style>
+</head>
+<body>
+<p>While playing with Conor McBride’s material for his summer school on dependently-typed metaprogramming, I was puzzled as to how easy it was to implement matrix transposition. I will detail here what goes on, as I find the insight slightly amusing.</p>
+<p>First, some boilerplate code:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="kw">module</span> <span class="dt">TraverseId</span> <span class="kw">where</span>
+
+open <span class="kw">import</span> Data.Nat
+open <span class="kw">import</span> Function</code></pre>
+<p>We define standard length-indexed lists (usually named vectors), and related operations.</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">Vec</span> (<span class="dt">X</span> <span class="fu">:</span> <span class="dt">Set</span>) <span class="fu">:</span> ℕ <span class="ot">→</span> <span class="dt">Set</span> <span class="kw">where</span>
+  ◇   <span class="fu">:</span>                         <span class="dt">Vec</span> <span class="dt">X</span> zero
+  _,_ <span class="fu">:</span> {n <span class="fu">:</span> ℕ} <span class="ot">→</span> <span class="dt">X</span> <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">X</span> n <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">X</span> (suc n)
+
+vec <span class="fu">:</span> <span class="ot">∀</span> {n <span class="dt">X</span>} <span class="ot">→</span> <span class="dt">X</span> <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">X</span> n
+vec {zero}  x <span class="fu">=</span> ◇
+vec {suc n} x <span class="fu">=</span> x , vec x
+
+vapp <span class="fu">:</span> <span class="ot">∀</span> {n <span class="dt">S</span> <span class="dt">T</span>} <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">S</span> <span class="ot">→</span> <span class="dt">T</span>) n <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">S</span> n <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">T</span> n
+vapp ◇        ◇        <span class="fu">=</span> ◇
+vapp (f , fs) (x , xs) <span class="fu">=</span> f x , vapp fs xs</code></pre>
+<p>We now define applicative functors, along with two instances for the identity functor and the fixed-sized vector functor (you can think of it as a finite tabulation).</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell">record <span class="dt">Applicative</span> (<span class="dt">F</span> <span class="fu">:</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span>) <span class="fu">:</span> <span class="dt">Set1</span> <span class="kw">where</span>
+  <span class="kw">infixl</span> <span class="dv">2</span> _⟨⋆⟩_
+  field
+    pure  <span class="fu">:</span> <span class="ot">∀</span> {<span class="dt">X</span>} <span class="ot">→</span> <span class="dt">X</span> <span class="ot">→</span> <span class="dt">F</span> <span class="dt">X</span>
+    _⟨⋆⟩_ <span class="fu">:</span> <span class="ot">∀</span> {<span class="dt">S</span> <span class="dt">T</span>} <span class="ot">→</span> <span class="dt">F</span> (<span class="dt">S</span> <span class="ot">→</span> <span class="dt">T</span>) <span class="ot">→</span> <span class="dt">F</span> <span class="dt">S</span> <span class="ot">→</span> <span class="dt">F</span> <span class="dt">T</span>
+open <span class="dt">Applicative</span> {{<span class="fu">...</span>}} public
+
+applicativeVec  <span class="fu">:</span> <span class="ot">∀</span> {n} <span class="ot">→</span> <span class="dt">Applicative</span> (λ <span class="dt">X</span> <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">X</span> n)
+applicativeVec  <span class="fu">=</span> record { pure <span class="fu">=</span> vec; _⟨⋆⟩_ <span class="fu">=</span> vapp }
+
+applicativeId <span class="fu">:</span> <span class="dt">Applicative</span> id
+applicativeId <span class="fu">=</span> record { pure <span class="fu">=</span> id; _⟨⋆⟩_ <span class="fu">=</span> id }</code></pre>
+<p>We then proceed to define the traversable interface.</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell">record <span class="dt">Traversable</span> (<span class="dt">F</span> <span class="fu">:</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span>) <span class="fu">:</span> <span class="dt">Set1</span> <span class="kw">where</span>
+  field
+    traverse <span class="fu">:</span> <span class="ot">∀</span> {<span class="dt">G</span> <span class="dt">S</span> <span class="dt">T</span>}{{<span class="dt">AG</span> <span class="fu">:</span> <span class="dt">Applicative</span> <span class="dt">G</span>}} <span class="ot">→</span>
+               (<span class="dt">S</span> <span class="ot">→</span> <span class="dt">G</span> <span class="dt">T</span>) <span class="ot">→</span> <span class="dt">F</span> <span class="dt">S</span> <span class="ot">→</span> <span class="dt">G</span> (<span class="dt">F</span> <span class="dt">T</span>)
+open <span class="dt">Traversable</span> {{<span class="fu">...</span>}} public</code></pre>
+<p>You can try to think of traverse’s signature in these terms: given a G-effectful action transforming an element of S into an element of T, and a F-structure containing some elements of S, we can compute a G-effectful action building up a F-structure of elements of T. In some sense, we map the action into the structure, and then we fold the structure of actions into a structure of results.</p>
+<p>Vectors of a given size are traversable:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell">traversableVec <span class="fu">:</span> {n <span class="fu">:</span> ℕ} <span class="ot">→</span> <span class="dt">Traversable</span> (λ <span class="dt">X</span> <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">X</span> n)
+traversableVec <span class="fu">=</span> record { traverse <span class="fu">=</span> vtr } <span class="kw">where</span>
+  vtr <span class="fu">:</span> <span class="ot">∀</span> {n <span class="dt">G</span> <span class="dt">S</span> <span class="dt">T</span>}{{_ <span class="fu">:</span> <span class="dt">Applicative</span> <span class="dt">G</span>}} <span class="ot">→</span>
+               (<span class="dt">S</span> <span class="ot">→</span> <span class="dt">G</span> <span class="dt">T</span>) <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">S</span> n <span class="ot">→</span> <span class="dt">G</span> (<span class="dt">Vec</span> <span class="dt">T</span> n)
+  vtr        f ◇         <span class="fu">=</span> pure ◇
+  vtr {{aG}} f (s , ss)  <span class="fu">=</span> pure {{aG}} _,_ ⟨⋆⟩ f s ⟨⋆⟩ vtr f ss</code></pre>
+<p>The given exercise at this point in the course was to implement matrix transposition. It was heavily hinted that this would be implemented as a traversal, so I let myself be guided by the types, and write the following, where the question mark stands for a hole, a placeholder for a term that you do not want to write yet:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell">transpose <span class="fu">:</span> <span class="ot">∀</span> {m n <span class="dt">X</span>} <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> n) m
+transpose <span class="fu">=</span> traverse <span class="fu">?</span></code></pre>
+<p>At that point, the type of the hole (the expected type of the term to be filled in place of the hole) was the following:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="dt">Goal</span><span class="fu">:</span> <span class="dt">Vec</span> <span class="fu">.</span><span class="dt">X</span> <span class="fu">.</span>m <span class="ot">→</span> <span class="dt">Vec</span> <span class="fu">.</span><span class="dt">X</span> <span class="fu">.</span>m</code></pre>
+<p>Well, do I have just the right candidate for that type! Even Agsy, the automated program search tool shipped with Agda, knows what to put in that hole!</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell">transpose <span class="fu">:</span> <span class="ot">∀</span> {m n <span class="dt">X</span>} <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> n) m
+transpose <span class="fu">=</span> traverse id</code></pre>
+<p>At that point though, the doubt builds in my mind. It seems to me that a traversal with the ineffectful identity function should just give me back the same structure I started with... Yet given the type of transpose, it definitely modifies the shape of the input structure. And at such a polymorphic type, with such a generic implementation, there’s only so much it can be doing! How does it work!?</p>
+<p>Before trying to solve that question, I wonder whether I could implement the identity function as a matrix traversal... Again, being type-directed:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell">matrixId <span class="fu">:</span> <span class="ot">∀</span> {m n <span class="dt">X</span>} <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n
+matrixId <span class="fu">=</span> traverse <span class="fu">?</span></code></pre>
+<p>Can you guess the type of the hole? :-)</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="dt">Goal</span><span class="fu">:</span> <span class="dt">Vec</span> <span class="fu">.</span><span class="dt">X</span> <span class="fu">.</span>m <span class="ot">→</span> <span class="dt">Vec</span> <span class="fu">.</span><span class="dt">X</span> <span class="fu">.</span>m</code></pre>
+<p>And indeed, here comes the implementation:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell">matrixId <span class="fu">:</span> <span class="ot">∀</span> {m n <span class="dt">X</span>} <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n
+matrixId <span class="fu">=</span> traverse id</code></pre>
+<p>Sounds familiar? Indeed, to implement matrix transposition and matrix identity, I wrote the exact same code! So something must be happening under the covers, at the level of implicit arguments.</p>
+<p>Let’s play the part of the unification algorithm with our two toy functions. Recall the full polymorphic type of traverse:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell">traverse <span class="fu">:</span> <span class="ot">∀</span> {<span class="dt">F</span> <span class="fu">:</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span>}{<span class="dt">G</span> <span class="dt">S</span> <span class="dt">T</span>}{{<span class="dt">AG</span> <span class="fu">:</span> <span class="dt">Applicative</span> <span class="dt">G</span>}} <span class="ot">→</span>
+                  (<span class="dt">S</span> <span class="ot">→</span> <span class="dt">G</span> <span class="dt">T</span>) <span class="ot">→</span> <span class="dt">F</span> <span class="dt">S</span> <span class="ot">→</span> <span class="dt">G</span> (<span class="dt">F</span> <span class="dt">T</span>)</code></pre>
+<p>So, by unification (the question-marked variables are now unification variables in scope):</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="co">-- by applying to id, ?S is unified with ?G ?T, therefore substituted</span>
+traverse id <span class="fu">:</span> (<span class="fu">?</span><span class="dt">G</span> <span class="fu">?</span><span class="dt">T</span> <span class="ot">→</span> <span class="fu">?</span><span class="dt">G</span> <span class="fu">?</span><span class="dt">T</span>) <span class="ot">→</span> <span class="fu">?</span><span class="dt">F</span> (<span class="fu">?</span><span class="dt">G</span> <span class="fu">?</span><span class="dt">T</span>) <span class="ot">→</span> <span class="fu">?</span><span class="dt">G</span> (<span class="fu">?</span><span class="dt">F</span> <span class="fu">?</span><span class="dt">T</span>)</code></pre>
+<p>For our two examples, we ascribe the following type signatures:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="co">-- transpose</span>
+traverse id <span class="fu">:</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> n) m
+
+<span class="co">-- matrixId</span>
+traverse id <span class="fu">:</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n</code></pre>
+<p>The following unification problems are to be solved:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="co">-- transpose</span>
+<span class="fu">?</span><span class="dt">F</span> <span class="fu">?</span><span class="dt">S</span> <span class="ot">→</span> <span class="fu">?</span><span class="dt">G</span> (<span class="fu">?</span><span class="dt">F</span> <span class="fu">?</span><span class="dt">T</span>) ≙ <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> n) m
+
+<span class="co">-- matrixId</span>
+<span class="fu">?</span><span class="dt">F</span> <span class="fu">?</span><span class="dt">S</span> <span class="ot">→</span> <span class="fu">?</span><span class="dt">G</span> (<span class="fu">?</span><span class="dt">F</span> <span class="fu">?</span><span class="dt">T</span>) ≙ <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n</code></pre>
+<p>This gives rise to the following unification equations:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="co">-- transpose</span>
+<span class="fu">?</span><span class="dt">F</span> (<span class="fu">?</span><span class="dt">G</span> <span class="fu">?</span><span class="dt">T</span>) ≙ <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> m) n
+<span class="fu">?</span><span class="dt">G</span> (<span class="fu">?</span><span class="dt">F</span> <span class="fu">?</span><span class="dt">T</span>) ≙ <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> n) m
+
+<span class="co">-- matrixId</span>
+<span class="fu">?</span><span class="dt">F</span> (<span class="fu">?</span><span class="dt">G</span> <span class="fu">?</span><span class="dt">T</span>) ≙ <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> n) m
+<span class="fu">?</span><span class="dt">G</span> (<span class="fu">?</span><span class="dt">F</span> <span class="fu">?</span><span class="dt">T</span>) ≙ <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">X</span> n) m</code></pre>
+<p>And here are the potential solutions:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="co">-- transpose</span>
+<span class="dv">1</span><span class="fu">:</span> <span class="fu">?</span><span class="dt">T</span> <span class="fu">=</span> <span class="dt">X</span> ; <span class="fu">?</span><span class="dt">F</span> <span class="fu">=</span> λ <span class="dt">S</span> <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">S</span> n ; <span class="fu">?</span><span class="dt">G</span> <span class="fu">=</span> λ <span class="dt">S</span> <span class="ot">→</span> <span class="dt">Vec</span> <span class="dt">S</span> m
+
+<span class="co">-- matrixId</span>
+<span class="dv">1</span><span class="fu">:</span> <span class="fu">?</span><span class="dt">T</span> <span class="fu">=</span> <span class="dt">X</span> ; <span class="fu">?</span><span class="dt">F</span> <span class="fu">=</span> λ <span class="dt">S</span> <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">S</span> n) m ; <span class="fu">?</span><span class="dt">G</span> <span class="fu">=</span> id
+
+<span class="dv">2</span><span class="fu">:</span> <span class="fu">?</span><span class="dt">T</span> <span class="fu">=</span> <span class="dt">X</span> ; <span class="fu">?</span><span class="dt">F</span> <span class="fu">=</span> id ; <span class="fu">?</span><span class="dt">G</span> <span class="fu">=</span> λ <span class="dt">S</span> <span class="ot">→</span> <span class="dt">Vec</span> (<span class="dt">Vec</span> <span class="dt">S</span> n) m</code></pre>
+<p>However, another additional constraint, namely the implicit instance argument that requires <span class="math">? <em>G</em></span> to be an applicative functor, prevents the second equation from being solved, as we did not provide a way for Agda to build nested instances.</p>
+<p>The mystery is therefore solved: even though we wrote the same code, the implicit arguments have been inferred, type-directed by the unification, to be different. In the case of matrix transposition, the F-structure is the outermost vector layer, and the G-effect is the innermost vector layer. In the case of matrix identity, the entire matrix is the F-structure, and the G-effect is identity. It makes sense then, that traversing with no effect and the identity function preserves the matrix completely.</p>
+<p>One may now wonder how come traversing a vector with a vector effect effectively transposes the entire structure, seen as a matrix. It is actually fairly simple once you start unfolding the definitions:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell"><span class="co">-- note that (1 , 2) stands for (1 , 2 , ◇), for simplicity and brevity</span>
+  traverse id ((<span class="dv">1</span> , <span class="dv">2</span>) , (<span class="dv">3</span> , <span class="dv">4</span>) , (<span class="dv">5</span> , <span class="dv">6</span>))
+<span class="co">-- unfolding traverse for F = λ S → Vec S 3, that is unfolding traverseVec</span>
+<span class="fu">=</span> pure _,_ ⟨⋆⟩ id (<span class="dv">1</span> , <span class="dv">2</span>) ⟨⋆⟩ vtr id ((<span class="dv">3</span> , <span class="dv">4</span>) , (<span class="dv">5</span> , <span class="dv">6</span>))
+<span class="co">-- repeatedly unfolding recursive calls to vtr</span>
+<span class="fu">=</span> pure _,_ ⟨⋆⟩ id (<span class="dv">1</span> , <span class="dv">2</span>) ⟨⋆⟩
+  (pure _,_ ⟨⋆⟩ id (<span class="dv">3</span> , <span class="dv">4</span>) ⟨⋆⟩
+  (pure _,_ ⟨⋆⟩ id (<span class="dv">5</span> , <span class="dv">6</span>) ⟨⋆⟩ pure ◇))
+<span class="co">-- unfolding id...</span>
+<span class="fu">=</span> pure _,_ ⟨⋆⟩ (<span class="dv">1</span> , <span class="dv">2</span>) ⟨⋆⟩ (
+  pure _,_ ⟨⋆⟩ (<span class="dv">3</span> , <span class="dv">4</span>) ⟨⋆⟩ (
+  pure _,_ ⟨⋆⟩ (<span class="dv">5</span> , <span class="dv">6</span>) ⟨⋆⟩ pure ◇
+  ))
+<span class="co">-- unfolding pure, with the applicative instance for G = λ S → Vec S 2</span>
+<span class="fu">=</span> ((_,_) , (_,_)) ⟨⋆⟩ (<span class="dv">1</span> , <span class="dv">2</span>) ⟨⋆⟩ (((_,_) , (_,_)) ⟨⋆⟩ (<span class="dv">3</span> , <span class="dv">4</span>)
+  ⟨⋆⟩ (((_,_) , (_,_)) ⟨⋆⟩ (<span class="dv">5</span> , <span class="dv">6</span>) ⟨⋆⟩ (◇ , ◇)))
+<span class="co">-- the applicative application performs position-wise function application</span>
+<span class="fu">=</span> ((<span class="dv">1</span> , _) , (<span class="dv">2</span> , _)) ⟨⋆⟩ (((<span class="dv">3</span> , _) , (<span class="dv">4</span> , _)) ⟨⋆⟩ (((<span class="dv">5</span> , _) , (<span class="dv">6</span> , _)) ⟨⋆⟩ (◇ , ◇)))
+<span class="fu">=</span> (<span class="dv">1</span>,_ , <span class="dv">2</span>,_) ⟨⋆⟩ ((<span class="dv">3</span> ,_ , <span class="dv">4</span> ,_) ⟨⋆⟩ ((<span class="dv">5</span>) , (<span class="dv">6</span>)))
+<span class="fu">=</span> (<span class="dv">1</span>,_ , <span class="dv">2</span>,_) ⟨⋆⟩ ((<span class="dv">3</span> , <span class="dv">5</span>) , (<span class="dv">4</span> , <span class="dv">6</span>))
+<span class="fu">=</span> ((<span class="dv">1</span> , <span class="dv">3</span> , <span class="dv">5</span>) , (<span class="dv">2</span> , <span class="dv">4</span> , <span class="dv">6</span>))</code></pre>
+<p>All in all, matrix transposition is not implemented as a matrix traversal, but as a vector traversal with a column-building effect!</p>
+<p>Finally, here is how it goes for matrix identity:</p>
+<pre class="sourceCode literate haskell"><code class="sourceCode haskell">  traverse id ((<span class="dv">1</span> , <span class="dv">2</span>) , (<span class="dv">3</span> , <span class="dv">4</span>) , (<span class="dv">5</span> , <span class="dv">6</span>))
+<span class="co">-- unfolding traverse for F = λ S → Vec (Vec S 2) 3, that is unfolding traverseVec</span>
+<span class="fu">=</span> pure _,_ ⟨⋆⟩ id (<span class="dv">1</span> , <span class="dv">2</span>) ⟨⋆⟩ vtr id ((<span class="dv">3</span> , <span class="dv">4</span>) , (<span class="dv">5</span> , <span class="dv">6</span>))
+<span class="co">-- repeatedly unfolding recursive calls to vtr</span>
+<span class="fu">=</span> pure _,_ ⟨⋆⟩ id (<span class="dv">1</span> , <span class="dv">2</span>) ⟨⋆⟩
+  (pure _,_ ⟨⋆⟩ id (<span class="dv">3</span> , <span class="dv">4</span>) ⟨⋆⟩
+  (pure _,_ ⟨⋆⟩ id (<span class="dv">5</span> , <span class="dv">6</span>) ⟨⋆⟩ pure ◇))
+<span class="co">-- unfolding id...</span>
+<span class="fu">=</span> pure _,_ ⟨⋆⟩ (<span class="dv">1</span> , <span class="dv">2</span>) ⟨⋆⟩ (
+  pure _,_ ⟨⋆⟩ (<span class="dv">3</span> , <span class="dv">4</span>) ⟨⋆⟩ (
+  pure _,_ ⟨⋆⟩ (<span class="dv">5</span> , <span class="dv">6</span>) ⟨⋆⟩ pure ◇
+  ))
+<span class="co">-- unfolding pure, with the applicative instance for G = id</span>
+<span class="fu">=</span> _,_ ⟨⋆⟩ (<span class="dv">1</span> , <span class="dv">2</span>) ⟨⋆⟩ (_,_ ⟨⋆⟩ (<span class="dv">3</span> , <span class="dv">4</span>) ⟨⋆⟩ (_,_ ⟨⋆⟩ (<span class="dv">5</span> , <span class="dv">6</span>) ⟨⋆⟩ ◇))
+<span class="co">-- the applicative application performs just function application</span>
+<span class="fu">=</span> (<span class="dv">1</span> , <span class="dv">2</span>),_ ⟨⋆⟩ ((<span class="dv">3</span> , <span class="dv">4</span>),_ ⟨⋆⟩ (<span class="dv">5</span> , <span class="dv">6</span>))
+<span class="fu">=</span> (<span class="dv">1</span> , <span class="dv">2</span>),_ ⟨⋆⟩ ((<span class="dv">3</span> , <span class="dv">4</span>) , (<span class="dv">5</span> , <span class="dv">6</span>))
+<span class="fu">=</span> (<span class="dv">1</span> , <span class="dv">2</span>) , (<span class="dv">3</span> , <span class="dv">4</span>) , (<span class="dv">5</span> , <span class="dv">6</span>)</code></pre>
+</body>
+</html>
+{% endraw %}

@@ -1,0 +1,6 @@
+[submodule ".themes/oct2-orange"]
+	path = .themes/oct2-orange
+	url = git://github.com/roberto/oct2-orange.git
+[submodule ".themes/classic-martinb"]
+	path = .themes/classic-martinb
+	url = git://github.com/fapper/classic-martinb.git
